@@ -1,0 +1,15 @@
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Text, func
+from app.database import Base
+
+
+class DailySale(Base):
+    __tablename__ = "daily_sales"
+
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(String, nullable=False, index=True)
+    amount = Column(Float, nullable=False)
+    currency = Column(String, default="USD")
+    category = Column(String, default="general")
+    note = Column(Text, default="")
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
