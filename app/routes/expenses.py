@@ -93,6 +93,24 @@ async def create_expense(
     )
 
 
+@router.get("/{expense_id}", response_model=ExpenseResponse)
+async def get_expense(
+    expense_id: int,
+    db=Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    expense = await db.get(Expense, expense_id)
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    cat = await db.get(ExpenseCategory, expense.category_id)
+    return ExpenseResponse(
+        id=expense.id, date=expense.date, amount=expense.amount,
+        currency=expense.currency, category_id=expense.category_id,
+        category_name=cat.name if cat else "", note=expense.note,
+        created_by=expense.created_by, created_at=expense.created_at,
+    )
+
+
 @router.get("/categories", response_model=list[ExpenseCategoryResponse])
 async def list_expense_categories(
     db=Depends(get_db),

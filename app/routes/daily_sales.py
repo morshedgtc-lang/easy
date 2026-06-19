@@ -71,6 +71,18 @@ async def create_daily_sale(
     return sale
 
 
+@router.get("/{sale_id}", response_model=DailySaleResponse)
+async def get_daily_sale(
+    sale_id: int,
+    db=Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    sale = await db.get(DailySale, sale_id)
+    if not sale:
+        raise HTTPException(status_code=404, detail="Daily sale not found")
+    return sale
+
+
 @router.put("/{sale_id}", response_model=DailySaleResponse)
 async def update_daily_sale(
     sale_id: int,
