@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import select, update
+from sqlalchemy import select
 from app.config import DATABASE_URL
 
 _ASYNC_SCHEMES = {
@@ -40,34 +40,16 @@ async def get_db():
 
 
 async def init_db():
-    from app.models import user, customer, repair, service, part, repair_part
-    from app.models import payment, daily_sale, expense, expense_category, setting
+    from app.models import user, customer, repair, part, repair_part
+    from app.models import payment, setting
     from app.models import supplier, purchase_order, supplier_payment
     from app.models import cash_ledger, inventory_log, due_collection, reconciliation
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    await _seed_expense_categories()
     await _seed_admin_user()
     await _seed_settings()
-
-
-async def _seed_expense_categories():
-    from app.models.expense_category import ExpenseCategory
-    from sqlalchemy.exc import IntegrityError
-    async with AsyncSessionLocal() as db:
-        try:
-            r = await db.execute(select(ExpenseCategory).limit(1))
-            if r.scalar():
-                return
-            for name in ["Rent", "Electricity / Utilities", "Internet",
-                         "Staff Salary", "Transport", "Marketing",
-                         "Miscellaneous"]:
-                db.add(ExpenseCategory(name=name))
-            await db.commit()
-        except IntegrityError:
-            await db.rollback()
 
 
 async def _seed_admin_user():

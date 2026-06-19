@@ -22,13 +22,4 @@ require_reception = require_role(ROLE_RECEPTION, ROLE_ADMIN)
 require_technician = require_role(ROLE_TECHNICIAN, ROLE_ADMIN)
 require_warehouse = require_role(ROLE_WAREHOUSE, ROLE_ADMIN)
 require_warehouse_or_admin = require_role(ROLE_WAREHOUSE, ROLE_ADMIN)
-require_reception_or_technician = require_role(ROLE_RECEPTION, ROLE_TECHNICIAN, ROLE_ADMIN)
 require_reception_or_admin = require_role(ROLE_RECEPTION, ROLE_ADMIN)
-
-
-def can_cancel_repair(repair_status: str, current_user) -> bool:
-    if current_user.role == ROLE_ADMIN:
-        return True
-    if repair_status in ("PENDING_ESTIMATE", "ESTIMATE_GIVEN"):
-        return current_user.role in (ROLE_RECEPTION, ROLE_ADMIN)
-    return False

@@ -4,8 +4,6 @@ from pydantic import BaseModel
 
 
 class ReconciliationCreate(BaseModel):
-    date: str
-    opening_balance: float
     actual_close: float
     notes: str = ""
 

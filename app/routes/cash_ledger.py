@@ -92,7 +92,7 @@ async def balance(
     return {"balance": total_in - total_out, "total_in": total_in, "total_out": total_out}
 
 
-@router.post("", response_model=CashLedgerResponse, status_code=201)
+@router.post("", status_code=201)
 async def create_manual_entry(
     data: CashLedgerEntry,
     db=Depends(get_db),

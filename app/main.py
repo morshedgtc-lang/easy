@@ -1,5 +1,4 @@
 import os
-from datetime import date
 
 from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,22 +10,25 @@ from sqlalchemy.exc import IntegrityError
 
 from app.database import init_db, get_db
 from app.utils.auth import get_current_user
-from app.models.repair import Repair
-from app.models.payment import Payment
-from app.models.daily_sale import DailySale
-from app.models.expense import Expense
-from app.models.customer import Customer
-from app.models.part import Part
 from app.models.cash_ledger import CashLedger
+from app.models.inventory_log import InventoryLog
+from app.models.part import Part
+from app.models.customer import Customer
+from app.models.repair import Repair
+from app.models.repair_part import RepairPart
+from app.models.payment import Payment
+from app.models.supplier import Supplier
+from app.models.supplier_payment import SupplierPayment
+from app.models.purchase_order import PurchaseOrder, PurchaseOrderItem
+from app.models.due_collection import DueCollection
 from app.routes import (
-    auth, customers, parts, repairs, payments, expenses,
-    daily_sales, suppliers, purchase_orders, cash_ledger,
-    inventory_log, due_collections, reconciliation, reports, ws,
+    auth, customers, parts, suppliers,
+    cash_ledger, inventory_log, due_collections, reconciliation, ws,
 )
 
 app = FastAPI(
     title="Shop App",
-    description="Mobile repair shop management framework",
+    description="Cash ledger, inventory, dues, reconciliation & supplier payables",
     version="1.0.0",
     redirect_slashes=False,
 )
@@ -42,17 +44,11 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(customers.router)
 app.include_router(parts.router)
-app.include_router(repairs.router)
-app.include_router(payments.router)
-app.include_router(expenses.router)
-app.include_router(daily_sales.router)
 app.include_router(suppliers.router)
-app.include_router(purchase_orders.router)
 app.include_router(cash_ledger.router)
 app.include_router(inventory_log.router)
 app.include_router(due_collections.router)
 app.include_router(reconciliation.router)
-app.include_router(reports.router)
 app.include_router(ws.router)
 
 static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
@@ -117,67 +113,67 @@ async def dashboard(
     current_user=Depends(get_current_user),
     db=Depends(get_db),
 ):
-    today = date.today().isoformat()
-
-    total_repairs = (await db.execute(select(sqlfunc.count(Repair.id)))).scalar() or 0
-    pending = (await db.execute(
-        select(sqlfunc.count(Repair.id)).where(Repair.status.in_(["PENDING_ESTIMATE", "ESTIMATE_GIVEN"]))
-    )).scalar() or 0
-    in_progress = (await db.execute(
-        select(sqlfunc.count(Repair.id)).where(Repair.status.in_(["APPROVED", "WAITING_PARTS", "REPAIRED"]))
-    )).scalar() or 0
-    completed_today = (await db.execute(
-        select(sqlfunc.count(Repair.id)).where(
-            Repair.status == "COMPLETED",
-            Repair.updated_at >= today, Repair.updated_at < today + " 23:59:59",
-        )
-    )).scalar() or 0
-
-    repair_payments = (await db.execute(
-        select(Payment).where(Payment.paid_at >= today, Payment.paid_at <= today + " 23:59:59")
-    )).scalars().all()
-    total_revenue = sum(p.amount for p in repair_payments)
-
-    manual_sales = (await db.execute(select(DailySale).where(DailySale.date == today))).scalars().all()
-    total_revenue += sum(s.amount for s in manual_sales)
-
-    expenses = (await db.execute(select(Expense).where(Expense.date == today))).scalars().all()
-    total_expenses = sum(e.amount for e in expenses)
-
-    cash_entries = (await db.execute(select(CashLedger).where(CashLedger.date == today))).scalars().all()
-    cash_in = sum(r.amount for r in cash_entries if r.direction == "IN")
-    cash_out = sum(r.amount for r in cash_entries if r.direction == "OUT")
+    today = __import__("datetime").date.today().isoformat()
 
     all_cash = (await db.execute(select(CashLedger))).scalars().all()
-    total_cash_balance = sum(r.amount for r in all_cash if r.direction == "IN") - sum(r.amount for r in all_cash if r.direction == "OUT")
+    total_cash_in = sum(r.amount for r in all_cash if r.direction == "IN")
+    total_cash_out = sum(r.amount for r in all_cash if r.direction == "OUT")
+    cash_balance = total_cash_in - total_cash_out
 
+    today_cash = [r for r in all_cash if r.date == today]
+    cash_in_today = sum(r.amount for r in today_cash if r.direction == "IN")
+    cash_out_today = sum(r.amount for r in today_cash if r.direction == "OUT")
+
+    total_parts = (await db.execute(select(sqlfunc.count(Part.id)))).scalar() or 0
     low_stock = (await db.execute(
         select(Part).where(Part.stock_qty <= Part.min_stock_alert)
     )).scalars().all()
+    inventory_entries = (await db.execute(select(sqlfunc.count(InventoryLog.id)))).scalar() or 0
 
-    recent_repairs = (await db.execute(
-        select(Repair).order_by(Repair.created_at.desc()).limit(5)
-    )).scalars().all()
-    recent_list = []
-    for r in recent_repairs:
-        cust = (await db.execute(select(Customer).where(Customer.id == r.customer_id))).scalar_one_or_none()
-        recent_list.append({
-            "id": r.id, "customer_name": cust.name if cust else "Unknown",
-            "model": r.model, "status": r.status,
-            "created_at": str(r.created_at) if r.created_at else "",
-        })
+    total_customers = (await db.execute(select(sqlfunc.count(Customer.id)))).scalar() or 0
+    customers_with_dues = 0
+    customer_ids = list(set(
+        r[0] for r in (await db.execute(select(DueCollection.customer_id))).all()
+    ))
+    for cid in customer_ids:
+        from app.utils.due_balance import get_customer_due_balance
+        bal = await get_customer_due_balance(cid, db)
+        if bal > 0:
+            customers_with_dues += 1
+
+    total_suppliers = (await db.execute(select(sqlfunc.count(Supplier.id)))).scalar() or 0
+    supplier_payables = 0
+    suppliers_list = (await db.execute(select(Supplier))).scalars().all()
+    for s in suppliers_list:
+        pos = (await db.execute(
+            select(PurchaseOrder).where(
+                PurchaseOrder.supplier_id == s.id,
+                PurchaseOrder.payment_type == "credit",
+                PurchaseOrder.status.in_(["sent", "partially_received", "received"]),
+            )
+        )).scalars().all()
+        for po in pos:
+            items = (await db.execute(
+                select(PurchaseOrderItem).where(PurchaseOrderItem.po_id == po.id)
+            )).scalars().all()
+            for item in items:
+                supplier_payables += item.cost_price * item.qty_received
+        payments = (await db.execute(
+            select(sqlfunc.coalesce(sqlfunc.sum(SupplierPayment.amount), 0)).where(
+                SupplierPayment.supplier_id == s.id
+            )
+        )).scalar() or 0
+        supplier_payables -= float(payments)
 
     return {
-        "today_repairs": total_repairs,
-        "pending": pending,
-        "in_progress": in_progress,
-        "completed_today": completed_today,
-        "today_revenue": total_revenue,
-        "today_expenses": total_expenses,
-        "net_profit": total_revenue - total_expenses,
-        "cash_in_today": cash_in,
-        "cash_out_today": cash_out,
-        "cash_balance": total_cash_balance,
+        "cash_in_today": cash_in_today,
+        "cash_out_today": cash_out_today,
+        "cash_balance": cash_balance,
+        "total_parts": total_parts,
         "low_stock": [{"id": p.id, "name": p.name, "stock_qty": p.stock_qty} for p in low_stock],
-        "recent_repairs": recent_list,
+        "inventory_entries": inventory_entries,
+        "total_customers": total_customers,
+        "customers_with_dues": customers_with_dues,
+        "total_suppliers": total_suppliers,
+        "supplier_payables": max(supplier_payables, 0),
     }
